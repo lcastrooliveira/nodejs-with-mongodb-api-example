@@ -1,0 +1,192 @@
+Sequencia de passos para o azure
+# 1 Instalar o CLI do Azure
+https://docs.microsoft.com/en-us/cli/azure/install-azure-cli-apt?view=azure-cli-latest
+
+# 2 Criar grupo de recursos
+az group create --name k8s-curso --location eastus
+
+# 3 Criar registry privado tipo basic no grupo de recursos
+az acr create --resource-group k8s-curso --name lcastrooliveirak8simagens --sku Basic
+
+# 4 URL do registry
+lcastrooliveirak8simagens.azurecr.io
+
+# 5 Loga no registry para poder enviar imagens
+az acr login--name lcastrooliveirak8simagens
+
+# 6 Listar imagens no registry
+az acr list --resource-group k8s-curso --output table
+
+# 7 Tagar imagem criada localmente para apontar para o registry do privado
+docker tag lcastrooliveira/api-heroes:v1 lcastrooliveirak8simagens.azurecr.io/api-heroes:v1
+
+ACR=lcastrooliveirak8simagens
+RESOURCE=k8s-curso
+LOCATION=eastus
+
+#------------------------CONTAINER SERVICES
+
+# 8 Criar o container publico do mongodb no azure.
+az container create --resource-group k8s-curso \
+    --name mongodb --image mongo:3 \
+    --cpu 1 --memory 1 \
+    --port 27017 \
+    --ip-address public
+
+# 8.5 Para verificar os logs do container digite
+az container logs --resource-group k8s-curso --name mongodb
+
+# 9 Verificar o IP em que este serviço de container subiu
+az container show --resource-group k8s-curso --name mongodb --query ipAddress.ip
+MONGO_URL=137.117.72.102
+
+# 9.5 Libera o adminEnabled do registry para ter acesso a senha
+az acr update -n lcastrooliveirak8simagens --admin-enabled true
+
+# 9.5 Pega a senha do registry
+az acr credential show -n lcastrooliveirak8simagens --query "passwords[0].value"
+PASS=OxwJ2uDDP8A/GDDfHq/LvuRY/f5xPJ0a
+Pega o username do registry
+az acr credential show -n lcastrooliveirak8simagens --query "username"
+
+# 10 Subir o container da aplicação
+az container create --resource-group k8s-curso \
+    --name api-heroes --image lcastrooliveirak8simagens.azurecr.io/api-heroes:v1 \
+    --cpu 1 --memory 1 \
+    --port 3000 \
+    --environment-variables MONGO_URL=137.117.72.102 \
+    --registry-username lcastrooliveirak8simagens \
+    --registry-password OxwJ2uDDP8A/GDDfHq/LvuRY/f5xPJ0a \
+    --ip-address public
+
+Serviço rodando em: 40.121.67.3:3000
+
+#-------------- AKS
+
+# 1 Criar cluster k8s
+az aks create -g k8s-curso \
+    --name k8s-cluster \
+    --dns-name-prefix lcastrooliveirak8s-cluster \
+    --generate-ssh-keys \
+    --node-count 2
+
+# 2 Instalar CLI do K8s para o azure
+sudo az aks install-cli
+
+# 3 Linkar a CLI para o cluster do Azure
+az aks get-credentials --resource-group k8s-curso --name k8s-cluster
+
+# 4 Veja os nós criados
+k8s-cluster
+
+# 5 Executar dashboard local linkado nos cluster da azure
+az aks browse --resource-group k8s-curso --name k8s-cluster
+
+#---------------------K8s Pods
+
+# 1 Startar Pod com mongodb
+* A principio Toods os pods sao instalados numa rede interna com Faixa de IP B 10.xxx.xxx.xxx
+kubectl run mongodb --image mongo:3 --port 27017
+
+# Listar Pod
+kubectl get pods
+
+# Destruir Pods
+kubectl delete pod mongodb-6d7bf986bd-x5csx (aqui é o name do pod)
+
+# Inspecionar pod
+kubectl describe pods
+
+# Lista pods com IP interno
+kubectl get pods --output=wide
+
+# Subir Pod heroes api
+kubectl run api-heroes \
+    --image lcastrooliveira/api-heroes:v1 \
+    --env "MONGO_URL=10.244.1.6" \
+    --env "PORT=4000" \
+    --replicas 2
+
+# Logs do Pod
+kubectl logs api-heroes-585f668655-5fcrq
+
+# Expor o pod para o mundo (com o IP quente)
+kubectl expose pod api-heroes-585f668655-5fcrq --port 4000 --type LoadBalancer
+
+#----------- Modo declarativo
+# 1 Criar arquivo declarativo (pods/heroes-pod.json)
+# 2 kubectl create -f pods/heroes-pod.json
+
+#----------- Gerenciar Pods
+
+# Entrar dentro do container
+kubectl exec -it api-heroes-pod -- /bin/sh
+
+# Documentação arquivos Pods
+kubectl explain pods
+
+# Trazer o output do arquivo declarativo em yaml ou json
+kubectl get pod api-heroes-pod -o yaml
+* Este arquivo vem com mais informações do que vc definiu, os defaults veem preenchidos
+
+#-------- SECRETS
+# Possibilita o uso de imagens em repositorios privados
+# Ver comando em secret.sh
+
+#Listar secrets
+kubectl get secret
+
+# Descrever secrets
+kubectl describe secret acr-credentials
+
+#------- REPLICA SETS
+# ver arquivos na pasta replicasets
+
+#------ SERVICES iterativa
+
+#Listar servicos
+kubectl get svc
+
+#Deletar servicos
+kubectl delete svc <servico>
+
+# Expor um servico
+kubectl expose -f replicasets/heroes-rc.json --port 4000 --type LoadBalancer
+
+#-----Deployments
+
+Veja a pasta de Deployments
+
+#-----Rolling Updates
+
+Veja a pasta rolling updates, principalmente o .sh
+
+#------- Ingresss controllers
+
+Veja a pasta de ingress_controllers
+
+#------- Statefulsets
+
+veja a pasta stateful sets
+
+#------ Persistence Volumes
+
+veja a pasta de volumes
+
+#------ Jobs e CronJobs
+
+veja a pasta jobs_cron
+
+#------ Namespaces
+
+veja a pasta 11_namespaces
+* Foi parcialmente feito, os Deployments nao irao funcionar pois um
+Namespaces não compartilha services e nem secrets e nem mais nada.
+Logo tudo deve ser recriado nos Namespaces development e production.
+
+#----- Monitoramento
+
+Veja a pasta 12_autoscaling
+* foram instalados as ferramentas metrics-server e a de testes de carga chamada
+Siege
+
